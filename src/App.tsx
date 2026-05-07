@@ -65,8 +65,7 @@ function countBy(records: FilingRecord[], picker: (record: FilingRecord) => stri
 }
 
 function cleanArticleText(number: string, text: string) {
-  const escaped = number.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return text.replace(new RegExp(`^${escaped}\\s*\\n?\\s*`), "");
+  return text.startsWith(number) ? text.slice(number.length).replace(/^\s*\n?\s*/, "") : text;
 }
 
 function buildSeries(records: FilingRecord[], labels: string[], picker: (record: FilingRecord) => string | string[]) {
