@@ -271,7 +271,7 @@ def parse_law_articles(title: str, source_url: str, effective_date: str) -> dict
     start = next((i for i, line in enumerate(lines) if line == title), 0)
     chapters = []
     current = {"chapter": "正文", "articles": []}
-    article_re = re.compile(r"^第[一二三四五六七八九十百]+条")
+    article_re = re.compile(r"^(第[一二三四五六七八九十百]+条)\s*(.*)")
     for line in lines[start:]:
         if not line or line in {"分享：", "打印", "关闭", "返回顶部"}:
             continue
@@ -280,8 +280,9 @@ def parse_law_articles(title: str, source_url: str, effective_date: str) -> dict
                 chapters.append(current)
             current = {"chapter": line, "articles": []}
             continue
-        if article_re.match(line):
-            current["articles"].append({"number": line.split(" ")[0], "text": line})
+        article_match = article_re.match(line)
+        if article_match:
+            current["articles"].append({"number": article_match.group(1), "text": article_match.group(2).strip()})
         elif current["articles"]:
             current["articles"][-1]["text"] += "\n" + line
         if "本规定自" in line and "施行" in line:
@@ -291,6 +292,24 @@ def parse_law_articles(title: str, source_url: str, effective_date: str) -> dict
     if not chapters:
         raise RuntimeError(f"no law articles parsed from {source_url}")
     return {"title": title, "sourceUrl": source_url, "effectiveDate": effective_date, "chapters": chapters}
+
+
+def load_supplemental_laws() -> list[dict]:
+    path = OUT_DIR / "supplemental-laws.json"
+    if not path.exists():
+        return []
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def merge_laws(base_laws: list[dict], supplemental_laws: list[dict]) -> list[dict]:
+    seen = {law.get("title") for law in base_laws}
+    merged = [*base_laws]
+    for law in supplemental_laws:
+        title = law.get("title")
+        if title and title not in seen:
+            merged.append(law)
+            seen.add(title)
+    return merged
 
 
 def write_json(path: Path, payload) -> None:
@@ -358,6 +377,7 @@ def build(fetch_remote: bool, announcement_url: str | None = None) -> None:
             raise
         print(f"warning: law source fetch failed, reusing existing laws.json: {exc}", file=sys.stderr)
         laws = json.loads(existing_laws_path.read_text(encoding="utf-8"))
+    laws = merge_laws(laws, load_supplemental_laws())
 
     facets = {
         "filingTypes": sorted({r["filingType"] for r in records}),
