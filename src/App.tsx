@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ArrowUpRight, Database, Download, FileText, FilterX, RefreshCw, Search } from "lucide-react";
+import { Activity, ArrowUpRight, Database, Download, FileText, FilterX, Search } from "lucide-react";
 import type { Facets, FilingRecord, Law, Source, Stats } from "./types";
 
 type View = "records" | "trends" | "laws" | "sources";
@@ -8,8 +8,19 @@ type ChartDatum = { label: string; value: number };
 type Series = { label: string; values: number[]; color: string };
 
 const emptyFilters: Filters = { query: "", filingType: "", batch: "", algorithmClass: "", province: "", domainTag: "" };
-const actionsUrl = import.meta.env.VITE_GITHUB_ACTIONS_URL || "https://github.com/settings/repositories";
 const palette = ["#2563eb", "#f97316", "#16a34a", "#dc2626", "#7c3aed", "#0891b2", "#ca8a04", "#db2777", "#4f46e5", "#059669", "#ea580c", "#64748b"];
+const heatPalette = ["#f8fafc", "#dbeafe", "#93c5fd", "#3b82f6", "#1d4ed8", "#0f172a"];
+const regionLayout = [
+  { name: "新疆", x: 1, y: 2 }, { name: "西藏", x: 2, y: 5 }, { name: "青海", x: 3, y: 4 }, { name: "甘肃", x: 4, y: 3 },
+  { name: "宁夏", x: 5, y: 3 }, { name: "内蒙古", x: 6, y: 2 }, { name: "黑龙江", x: 10, y: 1 }, { name: "吉林", x: 10, y: 2 },
+  { name: "辽宁", x: 9, y: 3 }, { name: "北京", x: 8, y: 3 }, { name: "天津", x: 8, y: 4 }, { name: "河北", x: 7, y: 4 },
+  { name: "山西", x: 6, y: 4 }, { name: "陕西", x: 5, y: 5 }, { name: "河南", x: 7, y: 5 }, { name: "山东", x: 8, y: 5 },
+  { name: "四川", x: 4, y: 6 }, { name: "重庆", x: 5, y: 6 }, { name: "湖北", x: 6, y: 6 }, { name: "安徽", x: 7, y: 6 },
+  { name: "江苏", x: 8, y: 6 }, { name: "上海", x: 9, y: 6 }, { name: "云南", x: 3, y: 7 }, { name: "贵州", x: 4, y: 7 },
+  { name: "湖南", x: 5, y: 7 }, { name: "江西", x: 6, y: 7 }, { name: "浙江", x: 7, y: 7 }, { name: "福建", x: 7, y: 8 },
+  { name: "广西", x: 4, y: 8 }, { name: "广东", x: 5, y: 8 }, { name: "香港", x: 6, y: 8 }, { name: "澳门", x: 6, y: 9 },
+  { name: "海南", x: 5, y: 9 }, { name: "台湾", x: 8, y: 8 },
+];
 const domainRuleText = [
   "新闻资讯：新闻、资讯、文章、信息流、热点、时政",
   "短视频/直播：短视频、视频、直播、视听、音视频、频道",
@@ -51,6 +62,11 @@ function countBy(records: FilingRecord[], picker: (record: FilingRecord) => stri
     (Array.isArray(values) ? values : [values]).filter(Boolean).forEach((value) => counts.set(value, (counts.get(value) ?? 0) + 1));
   });
   return [...counts.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+}
+
+function cleanArticleText(number: string, text: string) {
+  const escaped = number.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text.replace(new RegExp(`^${escaped}\\s*\\n?\\s*`), "");
 }
 
 function buildSeries(records: FilingRecord[], labels: string[], picker: (record: FilingRecord) => string | string[]) {
@@ -107,6 +123,39 @@ function PiePanel({ title, data, showRules = false }: { title: string; data: Cha
           <div>{domainRuleText.map((item) => <span key={item}>{item}</span>)}</div>
         </div>
       )}
+    </article>
+  );
+}
+
+function ChinaHeatMap({ data }: { data: ChartDatum[] }) {
+  const values = new Map(data.map((item) => [item.label, item.value]));
+  const max = Math.max(1, ...regionLayout.map((item) => values.get(item.name) ?? 0));
+  const colorFor = (value: number) => {
+    if (value === 0) return heatPalette[0];
+    const index = Math.min(heatPalette.length - 1, Math.max(1, Math.ceil((value / max) * (heatPalette.length - 1))));
+    return heatPalette[index];
+  };
+  return (
+    <article className="chart-card chart-wide">
+      <div className="chart-head"><h2>中国地区热力图</h2><span>按备案数量着色，含港澳台</span></div>
+      <div className="map-layout">
+        <div className="china-map-grid" aria-label="中国省级备案热力图">
+          {regionLayout.map((region) => {
+            const value = values.get(region.name) ?? 0;
+            return (
+              <div className="map-cell" key={region.name} style={{ gridColumn: region.x, gridRow: region.y, background: colorFor(value), color: value / max > 0.55 ? "#fff" : "#17202a" }} title={`${region.name}: ${value}`}>
+                <strong>{region.name}</strong>
+                <span>{value}</span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="heat-legend">
+          <span>低</span>
+          {heatPalette.map((color) => <i key={color} style={{ background: color }} />)}
+          <span>高</span>
+        </div>
+      </div>
     </article>
   );
 }
@@ -180,7 +229,8 @@ function TrendsView({ records }: { records: FilingRecord[] }) {
   const domainData = countBy(records, (record) => record.domainTags).slice(0, 8);
   const classDataAll = countBy(records, (record) => record.algorithmClass);
   const classData = classDataAll.slice(0, 10);
-  const provinceData = countBy(records, (record) => record.province).filter((item) => item.label !== "未识别").slice(0, 8);
+  const provinceDataAll = countBy(records, (record) => record.province).filter((item) => item.label !== "未识别");
+  const provinceData = provinceDataAll.slice(0, 8);
   const filingTypeData = countBy(records, (record) => record.filingType);
   const roleData = countBy(records.filter((record) => record.filingType === "深度合成服务算法备案"), (record) => record.role || record.algorithmClass);
   const trendConfigs = {
@@ -204,6 +254,7 @@ function TrendsView({ records }: { records: FilingRecord[] }) {
       <div className="chart-grid">
         <PiePanel title="应用领域结构" data={domainData} showRules />
         <PiePanel title="省份结构" data={provinceData} />
+        <ChinaHeatMap data={provinceDataAll} />
         <article className="chart-card chart-wide">
           <div className="chart-head"><h2>趋势维度选择</h2><span>按实际数据库字段持续映射</span></div>
           <div className="trend-controls">
@@ -282,7 +333,6 @@ function App() {
     <main className="shell">
       <header className="topbar">
         <div><p className="eyebrow">Personal Research Database</p><h1>算法备案查询系统</h1></div>
-        <a className="icon-button primary" href={actionsUrl} target="_blank" rel="noreferrer" title="打开 GitHub Actions 更新抓取"><RefreshCw size={18} />更新抓取</a>
       </header>
 
       <section className="summary-band">
@@ -344,9 +394,9 @@ function App() {
           <section className="law-panel">
             {activeLaw && (
               <>
-                <div className="law-head"><div><h2>{activeLaw.title}</h2><p>施行日期：{activeLaw.effectiveDate}</p></div><a href={activeLaw.sourceUrl} target="_blank" rel="noreferrer">官方来源<ArrowUpRight size={15} /></a></div>
+                <div className="law-head"><div><h2>{activeLaw.title}</h2><p>施行日期：{activeLaw.effectiveDate}</p></div>{activeLaw.sourceUrl && <a href={activeLaw.sourceUrl} target="_blank" rel="noreferrer">官方来源<ArrowUpRight size={15} /></a>}</div>
                 <label className="field search-field law-search"><span>法条关键词</span><Search size={17} /><input value={lawQuery} onChange={(event) => setLawQuery(event.target.value)} placeholder="输入关键词" /></label>
-                <div className="articles">{lawMatches.map((chapter) => <section key={chapter.chapter}>{chapter.articles.length > 0 && <h3>{chapter.chapter}</h3>}{chapter.articles.map((article) => <article key={article.number}><strong>{article.number}</strong><p>{article.text}</p></article>)}</section>)}</div>
+                <div className="articles">{lawMatches.map((chapter) => <section key={chapter.chapter}>{chapter.articles.length > 0 && <h3>{chapter.chapter}</h3>}{chapter.articles.map((article) => <article key={article.number}><strong>{article.number}</strong><p>{cleanArticleText(article.number, article.text)}</p></article>)}</section>)}</div>
               </>
             )}
           </section>
