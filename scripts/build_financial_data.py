@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import base64
 import csv
+import gzip
 import json
+import re
 import urllib.request
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "public" / "data"
-PAGES_DATA_BASE = "https://clearplain.github.io/algorithm-filing-query/data"
+LEGACY_BUILDER_URL = "https://raw.githubusercontent.com/clearplain/algorithm-filing-query/6bd94d42eba4aaa6f0c15db0e2fe53bf33d2eb29/scripts/build_financial_data.py"
 
 CSV_FIELDS = [
     "regime", "regionType", "batch", "announcementDate", "sequence", "institutionName", "englishName",
@@ -27,13 +30,15 @@ def write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def fetch_json(filename: str) -> Any:
-    local_path = DATA_DIR / filename
-    if local_path.exists() and local_path.stat().st_size > 0:
-        return read_json(local_path)
-    url = f"{PAGES_DATA_BASE}/{filename}"
-    with urllib.request.urlopen(url, timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
+def load_legacy_payload() -> dict[str, Any]:
+    with urllib.request.urlopen(LEGACY_BUILDER_URL, timeout=30) as response:
+        script = response.read().decode("utf-8")
+    match = re.search(r'PAYLOAD_B64\s*=\s*"""([\s\S]*?)"""', script)
+    if not match:
+        raise RuntimeError("Cannot find legacy financial payload")
+    encoded = "".join(match.group(1).split())
+    encoded += "=" * (-len(encoded) % 4)
+    return json.loads(gzip.decompress(base64.b64decode(encoded)).decode("utf-8"))
 
 
 def record_key(record: dict[str, Any]) -> str:
@@ -68,7 +73,7 @@ def build_facets(records: list[dict[str, Any]]) -> dict[str, list[str]]:
     }
 
 
-def build_stats(records: list[dict[str, Any]], source_count: int) -> dict[str, Any]:
+def build_stats(records: list[dict[str, Any]], source_count: int, generated_at: str) -> dict[str, Any]:
     return {
         "recordCount": len(records),
         "domesticCount": sum(1 for record in records if record.get("regime") == "境内机构报备"),
@@ -77,7 +82,7 @@ def build_stats(records: list[dict[str, Any]], source_count: int) -> dict[str, A
         "sourceCount": source_count,
         "loadedSourceCount": source_count,
         "announcementOnlySourceCount": 0,
-        "generatedAt": "2026-06-16",
+        "generatedAt": generated_at,
         "note": "服务内容、服务渠道、机构名称、编号保留原始表格文本；省份、年份、服务类型仅用于检索统计。",
     }
 
@@ -101,21 +106,20 @@ def write_csv(path: Path, records: list[dict[str, Any]]) -> None:
 
 def build() -> None:
     fourth_payload = read_json(DATA_DIR / "financial-fourth-batch.json")
-    base_records = fetch_json("financial-records.json")
-    base_sources = fetch_json("financial-sources.json")
-    base_laws = fetch_json("financial-laws.json")
+    legacy_payload = load_legacy_payload()
 
-    merged_records = merge_records(base_records, fourth_payload.get("records", []))
-    merged_sources = merge_sources(base_sources, fourth_payload.get("source"))
+    merged_records = merge_records(legacy_payload["records"], fourth_payload.get("records", []))
+    merged_sources = merge_sources(legacy_payload["sources"], fourth_payload.get("source"))
+    stats = build_stats(merged_records, len(merged_sources), legacy_payload.get("stats", {}).get("generatedAt", ""))
 
     write_json(DATA_DIR / "financial-records.json", merged_records)
     write_json(DATA_DIR / "financial-facets.json", build_facets(merged_records))
-    write_json(DATA_DIR / "financial-stats.json", build_stats(merged_records, len(merged_sources)))
+    write_json(DATA_DIR / "financial-stats.json", stats)
     write_json(DATA_DIR / "financial-sources.json", merged_sources)
-    write_json(DATA_DIR / "financial-laws.json", base_laws)
+    write_json(DATA_DIR / "financial-laws.json", legacy_payload["laws"])
     write_csv(DATA_DIR / "financial-records.csv", merged_records)
 
-    print(json.dumps({"recordCount": len(merged_records), "domesticCount": build_stats(merged_records, len(merged_sources))["domesticCount"]}, ensure_ascii=False))
+    print(json.dumps({"recordCount": stats["recordCount"], "domesticCount": stats["domesticCount"]}, ensure_ascii=False))
 
 
 if __name__ == "__main__":
