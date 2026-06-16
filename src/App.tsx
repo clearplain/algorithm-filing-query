@@ -44,6 +44,42 @@ function MiniBarPanel({ title, data, unit = "项" }: { title: string; data: Datu
   return <article className="chart-card"><div className="chart-head"><h2>{title}</h2><span>{data.reduce((sum, item) => sum + item.value, 0).toLocaleString()} {unit}</span></div><div className="bar-list">{data.slice(0, 12).map((item, index) => <div className="bar-row" key={item.label}><span>{item.label}</span><div><i style={{ width: `${Math.max(4, item.value / max * 100)}%`, background: palette[index % palette.length] }} /></div><strong>{item.value}</strong></div>)}</div></article>;
 }
 
+function buildFinancialFacets(records: FinancialRecord[]): FinancialFacets {
+  return {
+    regimes: [...new Set(records.map((record) => record.regime).filter(Boolean))].sort(),
+    regionTypes: [...new Set(records.map((record) => record.regionType).filter(Boolean))].sort(),
+    batches: [...new Set(records.map((record) => record.batch).filter(Boolean))].sort(),
+    provinces: [...new Set(records.map((record) => record.province).filter(Boolean))].sort(),
+    cities: [...new Set(records.map((record) => record.city).filter(Boolean))].sort(),
+    serviceTypes: [...new Set(records.flatMap((record) => record.serviceTypes || []).filter(Boolean))].sort(),
+    years: [...new Set(records.map((record) => record.year).filter(Boolean))].sort(),
+  };
+}
+
+function buildFinancialStats(records: FinancialRecord[], baseStats: FinancialStats | null, sourceCount: number): FinancialStats {
+  return {
+    recordCount: records.length,
+    domesticCount: records.filter((record) => record.regime === "境内机构报备").length,
+    overseasDirectCount: records.filter((record) => record.regionType === "境外机构").length,
+    overseasInvestedCount: records.filter((record) => record.regionType === "境外投资设立企业").length,
+    sourceCount,
+    loadedSourceCount: sourceCount,
+    announcementOnlySourceCount: 0,
+    generatedAt: baseStats?.generatedAt || "",
+    note: "服务内容、服务渠道、机构名称、编号保留原始表格文本；省份、年份、服务类型仅用于检索统计。",
+  };
+}
+
+function mergeFinancialRecords(baseRecords: FinancialRecord[], extraRecords: FinancialRecord[]) {
+  const seen = new Set<string>();
+  return [...baseRecords, ...extraRecords].filter((record) => {
+    const key = [record.regime, record.recordNumber, record.institutionName, record.serviceChannel].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function ArchiveLanding({ onOpen }: { onOpen: (module: Module) => void }) {
   const folders: Array<{ module: Module; label: string; disabled?: boolean }> = [
     { module: "algorithm", label: "算法备案查询系统" },
@@ -53,50 +89,7 @@ function ArchiveLanding({ onOpen }: { onOpen: (module: Module) => void }) {
   const [active, setActive] = useState(0);
   const clamp = (value: number) => Math.max(0, Math.min(folders.length - 1, value));
   return (
-    <main className="archive-shell">
-      <h1 className="archive-title">网数档案馆</h1>
-      <section
-        className="folder-browser"
-        aria-label="网数档案馆文件夹"
-        onWheel={(event) => {
-          event.preventDefault();
-          if (Math.abs(event.deltaY) < 2) return;
-          setActive((current) => clamp(current + (event.deltaY > 0 ? 1 : -1)));
-        }}
-      >
-        <div className="folder-rail">
-          {folders.map((folder, index) => {
-            const offset = index - active;
-            const abs = Math.abs(offset);
-            const state = offset === 0 ? "active" : offset < 0 ? "before" : "after";
-            return (
-              <button
-                key={folder.label}
-                type="button"
-                className={`album-folder ${state}`}
-                style={{
-                  "--y": `${offset * 86}px`,
-                  "--z": `${offset * -120}px`,
-                  "--rot": `${offset * -1.4}deg`,
-                  "--scale": `${1 - abs * 0.045}`,
-                  "--opacity": `${1 - abs * 0.18}`,
-                  "--brightness": `${1 - abs * 0.04}`,
-                  "--hover-y": `${offset * 76 - 12}px`,
-                  "--hover-z": `${offset * -120 + 42}px`,
-                  "--hover-rot": `${offset * -1.2}deg`,
-                  "--hover-scale": `${1.025 - abs * 0.04}`,
-                } as CSSProperties}
-                onMouseEnter={() => setActive(index)}
-                onClick={() => folder.disabled ? setActive(index) : onOpen(folder.module)}
-              >
-                <span className="folder-tab">{folder.label}</span>
-                <span className="folder-body" />
-              </button>
-            );
-          })}
-        </div>
-      </section>
-    </main>
+    <main className="archive-shell"><h1 className="archive-title">网数档案馆</h1><section className="folder-browser" aria-label="网数档案馆文件夹" onWheel={(event) => { event.preventDefault(); if (Math.abs(event.deltaY) < 2) return; setActive((current) => clamp(current + (event.deltaY > 0 ? 1 : -1))); }}><div className="folder-rail">{folders.map((folder, index) => { const offset = index - active; const abs = Math.abs(offset); const state = offset === 0 ? "active" : offset < 0 ? "before" : "after"; return <button key={folder.label} type="button" className={`album-folder ${state}`} style={{ "--y": `${offset * 86}px`, "--z": `${offset * -120}px`, "--rot": `${offset * -1.4}deg`, "--scale": `${1 - abs * 0.045}`, "--opacity": `${1 - abs * 0.18}`, "--brightness": `${1 - abs * 0.04}`, "--hover-y": `${offset * 76 - 12}px`, "--hover-z": `${offset * -120 + 42}px`, "--hover-rot": `${offset * -1.2}deg`, "--hover-scale": `${1.025 - abs * 0.04}` } as CSSProperties} onMouseEnter={() => setActive(index)} onClick={() => folder.disabled ? setActive(index) : onOpen(folder.module)}><span className="folder-tab">{folder.label}</span><span className="folder-body" /></button>; })}</div></section></main>
   );
 }
 
@@ -160,7 +153,29 @@ function FinancialModule({ onBack }: { onBack: () => void }) {
   const [lawQuery, setLawQuery] = useState("");
   const [selectedLaw, setSelectedLaw] = useState(0);
   const [loading, setLoading] = useState(true);
-  useEffect(() => { Promise.all([fetch("./data/financial-records.json"), fetch("./data/financial-facets.json"), fetch("./data/financial-stats.json"), fetch("./data/financial-sources.json"), fetch("./data/financial-laws.json")]).then(async ([a, b, c, d, e]) => { setRecords(await a.json()); setFacets(await b.json()); setStats(await c.json()); setSources(await d.json()); setLaws(await e.json()); setLoading(false); }).catch(() => setLoading(false)); }, []);
+  useEffect(() => {
+    async function load() {
+      const [recordsRes, statsRes, sourcesRes, lawsRes, fourthPayload] = await Promise.all([
+        fetch("./data/financial-records.json"),
+        fetch("./data/financial-stats.json"),
+        fetch("./data/financial-sources.json"),
+        fetch("./data/financial-laws.json"),
+        fetch("./data/financial-fourth-batch.json").then((res) => res.ok ? res.json() : { records: [], source: null }).catch(() => ({ records: [], source: null })),
+      ]);
+      const baseRecords: FinancialRecord[] = await recordsRes.json();
+      const baseStats: FinancialStats = await statsRes.json();
+      const baseSources: FinancialSource[] = await sourcesRes.json();
+      const mergedRecords = mergeFinancialRecords(baseRecords, fourthPayload.records || []);
+      const mergedSources = fourthPayload.source ? [...baseSources.filter((source) => source.batch !== "第四批"), fourthPayload.source] : baseSources;
+      setRecords(mergedRecords);
+      setFacets(buildFinancialFacets(mergedRecords));
+      setStats(buildFinancialStats(mergedRecords, baseStats, mergedSources.length));
+      setSources(mergedSources);
+      setLaws(await lawsRes.json());
+      setLoading(false);
+    }
+    load().catch(() => setLoading(false));
+  }, []);
   const filtered = useMemo(() => records.filter((record) => matchesFinancial(record, filters)), [records, filters]);
   const activeLaw = laws[selectedLaw];
   const lawMatches = useLawMatches(activeLaw, lawQuery);
