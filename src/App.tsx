@@ -67,13 +67,25 @@ function ArchiveLanding({ onOpen }: { onOpen: (module: Module) => void }) {
         <div className="folder-rail">
           {folders.map((folder, index) => {
             const offset = index - active;
+            const abs = Math.abs(offset);
             const state = offset === 0 ? "active" : offset < 0 ? "before" : "after";
             return (
               <button
                 key={folder.label}
                 type="button"
                 className={`album-folder ${state}`}
-                style={{ "--offset": offset, "--abs": Math.abs(offset) } as CSSProperties}
+                style={{
+                  "--y": `${offset * 86}px`,
+                  "--z": `${offset * -120}px`,
+                  "--rot": `${offset * -1.4}deg`,
+                  "--scale": `${1 - abs * 0.045}`,
+                  "--opacity": `${1 - abs * 0.18}`,
+                  "--brightness": `${1 - abs * 0.04}`,
+                  "--hover-y": `${offset * 76 - 12}px`,
+                  "--hover-z": `${offset * -120 + 42}px`,
+                  "--hover-rot": `${offset * -1.2}deg`,
+                  "--hover-scale": `${1.025 - abs * 0.04}`,
+                } as CSSProperties}
                 onMouseEnter={() => setActive(index)}
                 onClick={() => folder.disabled ? setActive(index) : onOpen(folder.module)}
               >
