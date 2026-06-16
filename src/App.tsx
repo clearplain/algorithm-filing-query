@@ -1,47 +1,55 @@
 import { useEffect, useMemo, useState } from "react";
 import { Activity, ArrowUpRight, Database, Download, FileText, FilterX, Search } from "lucide-react";
-import type { Facets, FilingRecord, Law, Source, Stats } from "./types";
+import type { Facets, FilingRecord, FinancialFacets, FinancialLaw, FinancialRecord, FinancialSource, FinancialStats, Law, Source, Stats } from "./types";
 
-type View = "records" | "trends" | "laws" | "sources";
-type Filters = { query: string; filingType: string; batch: string; algorithmClass: string; province: string; domainTag: string };
-type ChartDatum = { label: string; value: number };
-type Series = { label: string; values: number[]; color: string };
+type Module = "archive" | "algorithm" | "financial";
+type AlgoView = "records" | "stats" | "laws" | "sources";
+type FinancialView = "records" | "stats" | "laws" | "sources";
+type AlgoFilters = { query: string; filingType: string; batch: string; algorithmClass: string; province: string; domainTag: string };
+type FinancialFilters = { query: string; regime: string; regionType: string; province: string; serviceType: string; year: string };
+type Datum = { label: string; value: number };
 
-const emptyFilters: Filters = { query: "", filingType: "", batch: "", algorithmClass: "", province: "", domainTag: "" };
-const palette = ["#2563eb", "#f97316", "#16a34a", "#dc2626", "#7c3aed", "#0891b2", "#ca8a04", "#db2777", "#4f46e5", "#059669", "#ea580c", "#64748b"];
-const heatPalette = ["#f8fafc", "#dbeafe", "#93c5fd", "#3b82f6", "#1d4ed8", "#0f172a"];
-const regionLayout = [
-  { name: "新疆", x: 1, y: 2 }, { name: "西藏", x: 2, y: 5 }, { name: "青海", x: 3, y: 4 }, { name: "甘肃", x: 4, y: 3 },
-  { name: "宁夏", x: 5, y: 3 }, { name: "内蒙古", x: 6, y: 2 }, { name: "黑龙江", x: 10, y: 1 }, { name: "吉林", x: 10, y: 2 },
-  { name: "辽宁", x: 9, y: 3 }, { name: "北京", x: 8, y: 3 }, { name: "天津", x: 8, y: 4 }, { name: "河北", x: 7, y: 4 },
-  { name: "山西", x: 6, y: 4 }, { name: "陕西", x: 5, y: 5 }, { name: "河南", x: 7, y: 5 }, { name: "山东", x: 8, y: 5 },
-  { name: "四川", x: 4, y: 6 }, { name: "重庆", x: 5, y: 6 }, { name: "湖北", x: 6, y: 6 }, { name: "安徽", x: 7, y: 6 },
-  { name: "江苏", x: 8, y: 6 }, { name: "上海", x: 9, y: 6 }, { name: "云南", x: 3, y: 7 }, { name: "贵州", x: 4, y: 7 },
-  { name: "湖南", x: 5, y: 7 }, { name: "江西", x: 6, y: 7 }, { name: "浙江", x: 7, y: 7 }, { name: "福建", x: 7, y: 8 },
-  { name: "广西", x: 4, y: 8 }, { name: "广东", x: 5, y: 8 }, { name: "香港", x: 6, y: 8 }, { name: "澳门", x: 6, y: 9 },
-  { name: "海南", x: 5, y: 9 }, { name: "台湾", x: 8, y: 8 },
-];
-const domainRuleText = [
-  "新闻资讯：新闻、资讯、文章、信息流、热点、时政",
-  "短视频/直播：短视频、视频、直播、视听、音视频、频道",
-  "电商/本地生活：电商、购物、商品、营销、外卖、团购、商家、消费",
-  "社交/社区：社交、社区、好友、话题、评论、互动、论坛",
-  "搜索/浏览器：搜索、检索、浏览器、问答",
-  "出行/交通：出行、打车、导航、交通、车辆、网约车、地图",
-  "教育/学习：教育、学习、课程、题库、作业、培训",
-  "生成合成：生成、合成、AIGC、大模型、对话、绘图、数字人、语音、人脸",
-];
+const emptyAlgoFilters: AlgoFilters = { query: "", filingType: "", batch: "", algorithmClass: "", province: "", domainTag: "" };
+const emptyFinancialFilters: FinancialFilters = { query: "", regime: "", regionType: "", province: "", serviceType: "", year: "" };
+const palette = ["#17202a", "#2563eb", "#16a34a", "#f97316", "#7c3aed", "#0891b2", "#ca8a04", "#64748b"];
 
 function includesText(source: string, query: string) {
   return source.toLowerCase().includes(query.toLowerCase());
 }
 
-function matchesRecord(record: FilingRecord, filters: Filters) {
+function countBy<T>(items: T[], picker: (item: T) => string | string[]) {
+  const counts = new Map<string, number>();
+  items.forEach((item) => {
+    const values = picker(item);
+    (Array.isArray(values) ? values : [values]).filter(Boolean).forEach((value) => counts.set(value, (counts.get(value) ?? 0) + 1));
+  });
+  return [...counts.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value || a.label.localeCompare(b.label, "zh-Hans-CN"));
+}
+
+function cleanArticleText(number: string, text: string) {
+  return text.startsWith(number) ? text.slice(number.length).replace(/^\s*\n?\s*/, "") : text;
+}
+
+function SelectField({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
+  return <label className="field"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}><option value="">全部</option>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>;
+}
+
+function StatCard({ label, value, note }: { label: string; value: string | number; note?: string }) {
+  return <div className="stat-card"><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div>;
+}
+
+function MiniBarPanel({ title, data, unit = "项" }: { title: string; data: Datum[]; unit?: string }) {
+  const max = Math.max(1, ...data.map((item) => item.value));
+  return <article className="chart-card"><div className="chart-head"><h2>{title}</h2><span>{data.reduce((sum, item) => sum + item.value, 0).toLocaleString()} {unit}</span></div><div className="bar-list">{data.slice(0, 12).map((item, index) => <div className="bar-row" key={item.label}><span>{item.label}</span><div><i style={{ width: `${Math.max(4, item.value / max * 100)}%`, background: palette[index % palette.length] }} /></div><strong>{item.value}</strong></div>)}</div></article>;
+}
+
+function ArchiveLanding({ onOpen }: { onOpen: (module: Module) => void }) {
+  return <main className="archive-shell"><section className="archive-hero"><p className="eyebrow">Personal Research Database</p><h1>网数档案馆</h1><p>把监管清单、备案公示、许可名单整理成可检索、可导出、可回溯来源的工作台。</p><div className="folder-stage"><div className="folder-stack"><i /><i /><i /><i /><i /><button className="file-folder main-folder" onClick={() => onOpen("algorithm")}><span>算法备案查询系统</span><small>Algorithm Filing</small></button></div></div></section><section className="module-grid"><button className="module-card" onClick={() => onOpen("algorithm")}><div className="folder-mark"><span /></div><h2>算法备案查询系统</h2><p>保留原有备案查询、趋势分析、法条检索、来源记录。</p></button><button className="module-card featured" onClick={() => onOpen("financial")}><div className="folder-mark"><span /></div><h2>金融信息服务报备许可查询系统</h2><p>新增境内机构报备、境外机构许可、境外投资设立企业许可检索。</p></button><button className="module-card disabled"><div className="folder-mark"><span /></div><h2>更多模块敬请期待</h2><p>预留给后续监管清单、处罚案例、标准条款数据库。</p></button></section></main>;
+}
+
+function matchesAlgo(record: FilingRecord, filters: AlgoFilters) {
   const query = filters.query.trim();
-  if (query) {
-    const haystack = [record.entityName, record.algorithmName, record.recordNumber, record.product, record.purpose].join(" ");
-    if (!includesText(haystack, query)) return false;
-  }
+  if (query && !includesText([record.entityName, record.algorithmName, record.recordNumber, record.product, record.purpose].join(" "), query)) return false;
   if (filters.filingType && record.filingType !== filters.filingType) return false;
   if (filters.batch && record.batch !== filters.batch) return false;
   if (filters.algorithmClass && record.algorithmClass !== filters.algorithmClass) return false;
@@ -50,365 +58,110 @@ function matchesRecord(record: FilingRecord, filters: Filters) {
   return true;
 }
 
-function batchOrder(batch: string) {
-  const match = batch.match(/(\d{4})年(\d{1,2})月/);
-  return match ? Number(match[1]) * 100 + Number(match[2]) : 0;
+function matchesFinancial(record: FinancialRecord, filters: FinancialFilters) {
+  const query = filters.query.trim();
+  if (query && !includesText([record.institutionName, record.englishName, record.recordNumber, record.serviceContent, record.serviceChannel, record.province, record.city].join(" "), query)) return false;
+  if (filters.regime && record.regime !== filters.regime) return false;
+  if (filters.regionType && record.regionType !== filters.regionType) return false;
+  if (filters.province && record.province !== filters.province) return false;
+  if (filters.serviceType && !record.serviceTypes.includes(filters.serviceType)) return false;
+  if (filters.year && record.year !== filters.year) return false;
+  return true;
 }
 
-function countBy(records: FilingRecord[], picker: (record: FilingRecord) => string | string[]) {
-  const counts = new Map<string, number>();
-  records.forEach((record) => {
-    const values = picker(record);
-    (Array.isArray(values) ? values : [values]).filter(Boolean).forEach((value) => counts.set(value, (counts.get(value) ?? 0) + 1));
-  });
-  return [...counts.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+function ModuleHeader({ eyebrow, title, onBack }: { eyebrow: string; title: string; onBack: () => void }) {
+  return <header className="topbar"><button className="ghost-button" onClick={onBack}>← 返回网数档案馆</button><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1></div></header>;
 }
 
-function cleanArticleText(number: string, text: string) {
-  return text.startsWith(number) ? text.slice(number.length).replace(/^\s*\n?\s*/, "") : text;
-}
-
-function buildSeries(records: FilingRecord[], labels: string[], picker: (record: FilingRecord) => string | string[]) {
-  const batches = [...new Set(records.map((record) => record.batch))].sort((a, b) => batchOrder(a) - batchOrder(b));
-  const series = labels.map((label, index) => ({
-    label,
-    color: palette[index % palette.length],
-    values: batches.map((batch) => records.filter((record) => {
-      const values = picker(record);
-      return record.batch === batch && (Array.isArray(values) ? values.includes(label) : values === label);
-    }).length),
-  }));
-  return { batches, series };
-}
-
-function SelectField({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
-        <option value="">全部</option>
-        {options.map((option) => <option key={option} value={option}>{option}</option>)}
-      </select>
-    </label>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: string | number }) {
-  return <div className="stat-card"><span>{label}</span><strong>{value}</strong></div>;
-}
-
-function PiePanel({ title, data, showRules = false }: { title: string; data: ChartDatum[]; showRules?: boolean }) {
-  const total = data.reduce((sum, item) => sum + item.value, 0);
-  let current = 0;
-  const gradient = data.slice(0, 8).map((item, index) => {
-    const start = current;
-    current += total ? (item.value / total) * 100 : 0;
-    return `${palette[index % palette.length]} ${start}% ${current}%`;
-  }).join(", ");
-  return (
-    <article className="chart-card">
-      <div className="chart-head"><h2>{title}</h2><span>{total.toLocaleString()} 项</span></div>
-      <div className="pie-wrap">
-        <div className="pie" style={{ background: `conic-gradient(${gradient})` }} />
-        <div className="legend-list">
-          {data.slice(0, 8).map((item, index) => (
-            <div key={item.label}><i style={{ background: palette[index % palette.length] }} /><span>{item.label}</span><strong>{item.value}</strong></div>
-          ))}
-        </div>
-      </div>
-      {showRules && (
-        <div className="rule-panel">
-          <strong>分类规则</strong>
-          <div>{domainRuleText.map((item) => <span key={item}>{item}</span>)}</div>
-        </div>
-      )}
-    </article>
-  );
-}
-
-function ChinaHeatMap({ data }: { data: ChartDatum[] }) {
-  const values = new Map(data.map((item) => [item.label, item.value]));
-  const max = Math.max(1, ...regionLayout.map((item) => values.get(item.name) ?? 0));
-  const colorFor = (value: number) => {
-    if (value === 0) return heatPalette[0];
-    const index = Math.min(heatPalette.length - 1, Math.max(1, Math.ceil((value / max) * (heatPalette.length - 1))));
-    return heatPalette[index];
-  };
-  return (
-    <article className="chart-card chart-wide">
-      <div className="chart-head"><h2>中国地区热力图</h2><span>按备案数量着色，含港澳台</span></div>
-      <div className="map-layout">
-        <div className="china-map-grid" aria-label="中国省级备案热力图">
-          {regionLayout.map((region) => {
-            const value = values.get(region.name) ?? 0;
-            return (
-              <div className="map-cell" key={region.name} style={{ gridColumn: region.x, gridRow: region.y, background: colorFor(value), color: value / max > 0.55 ? "#fff" : "#17202a" }} title={`${region.name}: ${value}`}>
-                <strong>{region.name}</strong>
-                <span>{value}</span>
-              </div>
-            );
-          })}
-        </div>
-        <div className="heat-legend">
-          <span>低</span>
-          {heatPalette.map((color) => <i key={color} style={{ background: color }} />)}
-          <span>高</span>
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function LinePanel({ title, batches, series, scale = "linear" }: { title: string; batches: string[]; series: Series[]; scale?: "linear" | "sqrt" | "log" }) {
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  const width = 760;
-  const height = 280;
-  const pad = 34;
-  const max = Math.max(1, ...series.flatMap((item) => item.values));
-  const transform = (value: number) => {
-    if (scale === "sqrt") return Math.sqrt(value);
-    if (scale === "log") return Math.log10(value + 1);
-    return value;
-  };
-  const scaledMax = transform(max) || 1;
-  const x = (index: number) => pad + (batches.length <= 1 ? 0 : index * ((width - pad * 2) / (batches.length - 1)));
-  const y = (value: number) => height - pad - (transform(value) / scaledMax) * (height - pad * 2);
-  const hoverX = hoverIndex === null ? null : x(hoverIndex);
-  const hoverItems = hoverIndex === null ? [] : series.map((item) => ({ label: item.label, value: item.values[hoverIndex], color: item.color })).sort((a, b) => b.value - a.value);
-  return (
-    <article className="chart-card chart-wide">
-      <div className="chart-head"><h2>{title}</h2><span>{batches.length} 个批次 · {scale === "linear" ? "线性刻度" : scale === "sqrt" ? "平方根刻度" : "对数刻度"}</span></div>
-      <div className="line-shell">
-      <svg
-        className="line-chart"
-        viewBox={`0 0 ${width} ${height}`}
-        role="img"
-        onMouseLeave={() => setHoverIndex(null)}
-        onMouseMove={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect();
-          const ratio = (event.clientX - rect.left) / rect.width;
-          const rawX = ratio * width;
-          const index = Math.max(0, Math.min(batches.length - 1, Math.round(((rawX - pad) / (width - pad * 2)) * (batches.length - 1))));
-          setHoverIndex(index);
-        }}
-      >
-        {[0, 1, 2, 3].map((tick) => {
-          const yy = pad + tick * ((height - pad * 2) / 3);
-          return <line key={tick} x1={pad} x2={width - pad} y1={yy} y2={yy} />;
-        })}
-        {hoverX !== null && <line className="hover-line" x1={hoverX} x2={hoverX} y1={pad} y2={height - pad} />}
-        {series.map((item) => {
-          const points = item.values.map((value, index) => `${x(index)},${y(value)}`).join(" ");
-          return (
-            <g key={item.label}>
-              <polyline points={points} stroke={item.color} />
-              {hoverIndex !== null && <circle cx={x(hoverIndex)} cy={y(item.values[hoverIndex])} r="4" fill={item.color} />}
-            </g>
-          );
-        })}
-      </svg>
-      {hoverIndex !== null && (
-        <div className="hover-card">
-          <strong>{batches[hoverIndex]}</strong>
-          {hoverItems.map((item) => <span key={item.label}><i style={{ background: item.color }} />{item.label}<b>{item.value}</b></span>)}
-        </div>
-      )}
-      </div>
-      <div className="line-legend">
-        {series.map((item) => <span key={item.label}><i style={{ background: item.color }} />{item.label}</span>)}
-      </div>
-    </article>
-  );
-}
-
-function TrendsView({ records }: { records: FilingRecord[] }) {
-  const [trendMetric, setTrendMetric] = useState<"domain" | "class" | "province" | "filingType" | "role">("domain");
-  const [lineCount, setLineCount] = useState(8);
-  const [scale, setScale] = useState<"linear" | "sqrt" | "log">("sqrt");
-  const domainData = countBy(records, (record) => record.domainTags).slice(0, 8);
-  const classDataAll = countBy(records, (record) => record.algorithmClass);
-  const classData = classDataAll.slice(0, 10);
-  const provinceDataAll = countBy(records, (record) => record.province).filter((item) => item.label !== "未识别");
-  const provinceData = provinceDataAll.slice(0, 8);
-  const filingTypeData = countBy(records, (record) => record.filingType);
-  const roleData = countBy(records.filter((record) => record.filingType === "深度合成服务算法备案"), (record) => record.role || record.algorithmClass);
-  const trendConfigs = {
-    domain: { title: "应用领域备案趋势", data: countBy(records, (record) => record.domainTags), picker: (record: FilingRecord) => record.domainTags },
-    class: { title: "算法类型 / 角色趋势", data: classDataAll, picker: (record: FilingRecord) => record.algorithmClass },
-    province: { title: "省份备案趋势", data: countBy(records, (record) => record.province).filter((item) => item.label !== "未识别"), picker: (record: FilingRecord) => record.province },
-    filingType: { title: "备案类型趋势", data: filingTypeData, picker: (record: FilingRecord) => record.filingType },
-    role: { title: "深度合成角色趋势", data: roleData, picker: (record: FilingRecord) => record.role || record.algorithmClass },
-  };
-  const activeTrend = trendConfigs[trendMetric];
-  const activeSeries = buildSeries(records, activeTrend.data.slice(0, lineCount).map((item) => item.label), activeTrend.picker);
-  const classTrend = buildSeries(records, classData.slice(0, 8).map((item) => item.label), (record) => record.algorithmClass);
-  const provinceTrend = buildSeries(records, provinceData.slice(0, 5).map((item) => item.label), (record) => record.province);
-
-  return (
-    <section className="trend-page">
-      <div className="trend-hero">
-        <div><p className="eyebrow">Trend Intelligence</p><h2>趋势分析</h2></div>
-        <span>按公告批次、领域、算法类型与属地拆解备案结构</span>
-      </div>
-      <div className="chart-grid">
-        <PiePanel title="应用领域结构" data={domainData} showRules />
-        <PiePanel title="省份结构" data={provinceData} />
-        <ChinaHeatMap data={provinceDataAll} />
-        <article className="chart-card chart-wide">
-          <div className="chart-head"><h2>趋势维度选择</h2><span>按实际数据库字段持续映射</span></div>
-          <div className="trend-controls">
-            <label><span>指标</span><select value={trendMetric} onChange={(event) => setTrendMetric(event.target.value as typeof trendMetric)}>
-              <option value="domain">应用领域</option>
-              <option value="class">算法类型 / 角色</option>
-              <option value="province">所在省</option>
-              <option value="filingType">备案类型</option>
-              <option value="role">深度合成角色</option>
-            </select></label>
-            <label><span>显示数量</span><select value={lineCount} onChange={(event) => setLineCount(Number(event.target.value))}>
-              <option value={5}>Top 5</option>
-              <option value={8}>Top 8</option>
-              <option value={12}>Top 12</option>
-            </select></label>
-            <label><span>刻度方式</span><select value={scale} onChange={(event) => setScale(event.target.value as typeof scale)}>
-              <option value="sqrt">平方根刻度：抬升长尾</option>
-              <option value="log">对数刻度：更强长尾对比</option>
-              <option value="linear">线性刻度：真实比例</option>
-            </select></label>
-          </div>
-        </article>
-        <LinePanel title={activeTrend.title} batches={activeSeries.batches} series={activeSeries.series} scale={scale} />
-        <LinePanel title="算法类型 / 角色趋势" batches={classTrend.batches} series={classTrend.series} scale={scale} />
-        <LinePanel title="省份备案趋势" batches={provinceTrend.batches} series={provinceTrend.series} scale={scale} />
-      </div>
-    </section>
-  );
-}
-
-function App() {
+function AlgorithmModule({ onBack }: { onBack: () => void }) {
   const [records, setRecords] = useState<FilingRecord[]>([]);
   const [facets, setFacets] = useState<Facets | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [laws, setLaws] = useState<Law[]>([]);
-  const [view, setView] = useState<View>("records");
-  const [filters, setFilters] = useState<Filters>(emptyFilters);
+  const [view, setView] = useState<AlgoView>("records");
+  const [filters, setFilters] = useState<AlgoFilters>(emptyAlgoFilters);
   const [lawQuery, setLawQuery] = useState("");
   const [selectedLaw, setSelectedLaw] = useState(0);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function load() {
-      const [recordsRes, facetsRes, statsRes, sourcesRes, lawsRes] = await Promise.all([
-        fetch("./data/records.json"),
-        fetch("./data/facets.json"),
-        fetch("./data/stats.json"),
-        fetch("./data/sources.json"),
-        fetch("./data/laws.json"),
-      ]);
-      setRecords(await recordsRes.json());
-      setFacets(await facetsRes.json());
-      setStats(await statsRes.json());
-      setSources(await sourcesRes.json());
-      setLaws(await lawsRes.json());
-      setLoading(false);
-    }
-    load().catch(() => setLoading(false));
-  }, []);
-
-  const filteredRecords = useMemo(() => records.filter((record) => matchesRecord(record, filters)), [records, filters]);
-  const visibleRecords = filteredRecords.slice(0, 200);
+  useEffect(() => { Promise.all([fetch("./data/records.json"), fetch("./data/facets.json"), fetch("./data/stats.json"), fetch("./data/sources.json"), fetch("./data/laws.json")]).then(async ([a, b, c, d, e]) => { setRecords(await a.json()); setFacets(await b.json()); setStats(await c.json()); setSources(await d.json()); setLaws(await e.json()); setLoading(false); }).catch(() => setLoading(false)); }, []);
+  const filtered = useMemo(() => records.filter((record) => matchesAlgo(record, filters)), [records, filters]);
   const activeLaw = laws[selectedLaw];
-  const lawMatches = useMemo(() => {
+  const lawMatches = useLawMatches(activeLaw, lawQuery);
+  const provinceData = countBy(records, (record) => record.province).filter((item) => item.label !== "未识别");
+  const typeData = countBy(records, (record) => record.filingType);
+  const classData = countBy(records, (record) => record.algorithmClass);
+  const domainData = countBy(records, (record) => record.domainTags);
+  function setFilter<K extends keyof AlgoFilters>(key: K, value: AlgoFilters[K]) { setFilters((current) => ({ ...current, [key]: value })); }
+  return <main className="shell"><ModuleHeader eyebrow="Algorithm Filing Database" title="算法备案查询系统" onBack={onBack} /><section className="summary-band"><div className="summary-copy"><strong>数据统计</strong><span>原系统模块，保留既有查询口径</span></div><div className="stats-grid"><StatCard label="总记录" value={stats?.recordCount ?? "-"} /><StatCard label="算法备案" value={stats?.domesticCount ?? "-"} /><StatCard label="深度合成" value={stats?.deepCount ?? "-"} /><StatCard label="数据源" value={stats?.sourceCount ?? "-"} /></div></section><Tabs view={view} setView={setView} labels={{ records: "备案查询", stats: "趋势统计", laws: "法条检索", sources: "来源记录" }} />{loading && <div className="empty">正在载入数据</div>}{!loading && view === "records" && facets && <section className="workspace"><aside className="filters"><label className="field search-field"><span>企业 / 算法 / 编号</span><Search size={17} /><input value={filters.query} onChange={(event) => setFilter("query", event.target.value)} placeholder="输入关键词" /></label><SelectField label="备案类型" value={filters.filingType} options={facets.filingTypes} onChange={(value) => setFilter("filingType", value)} /><SelectField label="批次" value={filters.batch} options={facets.batches} onChange={(value) => setFilter("batch", value)} /><SelectField label="算法类型 / 角色" value={filters.algorithmClass} options={facets.algorithmClasses} onChange={(value) => setFilter("algorithmClass", value)} /><SelectField label="应用领域" value={filters.domainTag} options={facets.domainTags} onChange={(value) => setFilter("domainTag", value)} /><SelectField label="所在省" value={filters.province} options={facets.provinces} onChange={(value) => setFilter("province", value)} /><button className="secondary-button" onClick={() => setFilters(emptyAlgoFilters)}><FilterX size={17} />清空筛选</button><a className="secondary-button" href="./data/records.csv" download><Download size={17} />导出 CSV</a></aside><section className="results"><div className="result-head"><div><strong>{filtered.length}</strong><span>条匹配记录</span></div><span>当前显示前 {Math.min(200, filtered.length)} 条</span></div><div className="record-list">{filtered.slice(0, 200).map((record) => <AlgoRecordCard key={record.id} record={record} />)}</div></section></section>}{!loading && view === "stats" && <section className="chart-grid"><MiniBarPanel title="备案类型结构" data={typeData} /><MiniBarPanel title="省份结构" data={provinceData} /><MiniBarPanel title="算法类型 / 角色" data={classData} /><MiniBarPanel title="应用领域" data={domainData} /></section>}{!loading && view === "laws" && <LawPanel laws={laws} selectedLaw={selectedLaw} setSelectedLaw={setSelectedLaw} lawQuery={lawQuery} setLawQuery={setLawQuery} lawMatches={lawMatches} activeLaw={activeLaw} />}{!loading && view === "sources" && <SourceList sources={sources} />}<BackTop /></main>;
+}
+
+function FinancialModule({ onBack }: { onBack: () => void }) {
+  const [records, setRecords] = useState<FinancialRecord[]>([]);
+  const [facets, setFacets] = useState<FinancialFacets | null>(null);
+  const [stats, setStats] = useState<FinancialStats | null>(null);
+  const [sources, setSources] = useState<FinancialSource[]>([]);
+  const [laws, setLaws] = useState<FinancialLaw[]>([]);
+  const [view, setView] = useState<FinancialView>("records");
+  const [filters, setFilters] = useState<FinancialFilters>(emptyFinancialFilters);
+  const [lawQuery, setLawQuery] = useState("");
+  const [selectedLaw, setSelectedLaw] = useState(0);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { Promise.all([fetch("./data/financial-records.json"), fetch("./data/financial-facets.json"), fetch("./data/financial-stats.json"), fetch("./data/financial-sources.json"), fetch("./data/financial-laws.json")]).then(async ([a, b, c, d, e]) => { setRecords(await a.json()); setFacets(await b.json()); setStats(await c.json()); setSources(await d.json()); setLaws(await e.json()); setLoading(false); }).catch(() => setLoading(false)); }, []);
+  const filtered = useMemo(() => records.filter((record) => matchesFinancial(record, filters)), [records, filters]);
+  const activeLaw = laws[selectedLaw];
+  const lawMatches = useLawMatches(activeLaw, lawQuery);
+  const regimeData = countBy(records, (record) => record.regime);
+  const provinceData = countBy(records, (record) => record.province);
+  const yearData = countBy(records, (record) => record.year).sort((a, b) => a.label.localeCompare(b.label));
+  const serviceData = countBy(records, (record) => record.serviceTypes);
+  function setFilter<K extends keyof FinancialFilters>(key: K, value: FinancialFilters[K]) { setFilters((current) => ({ ...current, [key]: value })); }
+  return <main className="shell"><ModuleHeader eyebrow="Financial Information Service Archive" title="金融信息服务报备许可查询系统" onBack={onBack} /><section className="summary-band"><div className="summary-copy"><strong>数据统计</strong><span>境内报备 + 境外许可名单，支持关键词检索、机构类别筛选、源链接回溯和 CSV 导出。</span></div><div className="stats-grid"><StatCard label="已载入记录" value={stats?.recordCount ?? "-"} /><StatCard label="境内机构报备" value={stats?.domesticCount ?? "-"} /><StatCard label="境外机构许可" value={stats?.overseasDirectCount ?? "-"} /><StatCard label="境外设企许可" value={stats?.overseasInvestedCount ?? "-"} /></div></section>{stats?.note && <div className="notice"><strong>数据提示：</strong>{stats.note}</div>}<Tabs view={view} setView={setView} labels={{ records: "机构查询", stats: "省市统计", laws: "法规依据", sources: "来源记录" }} />{loading && <div className="empty">正在载入数据</div>}{!loading && view === "records" && facets && <section className="workspace"><aside className="filters"><label className="field search-field"><span>机构 / 英文名 / 编号 / 服务</span><Search size={17} /><input value={filters.query} onChange={(event) => setFilter("query", event.target.value)} placeholder="输入关键词" /></label><SelectField label="监管类型" value={filters.regime} options={facets.regimes} onChange={(value) => setFilter("regime", value)} /><SelectField label="机构类型" value={filters.regionType} options={facets.regionTypes} onChange={(value) => setFilter("regionType", value)} /><SelectField label="省份 / 地区" value={filters.province} options={facets.provinces} onChange={(value) => setFilter("province", value)} /><SelectField label="服务类型" value={filters.serviceType} options={facets.serviceTypes} onChange={(value) => setFilter("serviceType", value)} /><SelectField label="编号年份" value={filters.year} options={facets.years} onChange={(value) => setFilter("year", value)} /><button className="secondary-button" onClick={() => setFilters(emptyFinancialFilters)}><FilterX size={17} />清空筛选</button><a className="secondary-button" href="./data/financial-records.csv" download><Download size={17} />导出 CSV</a></aside><section className="results"><div className="result-head"><div><strong>{filtered.length}</strong><span>条匹配记录</span></div><span>当前显示前 {Math.min(200, filtered.length)} 条</span></div><div className="record-list">{filtered.slice(0, 200).map((record) => <FinancialRecordCard key={record.id} record={record} />)}</div></section></section>}{!loading && view === "stats" && <section className="chart-grid"><MiniBarPanel title="监管类型结构" data={regimeData} /><MiniBarPanel title="编号年份分布" data={yearData} /><MiniBarPanel title="服务类型分布" data={serviceData} /><MiniBarPanel title="省份 / 地区 Top" data={provinceData} /><ProvincePanel data={provinceData} /></section>}{!loading && view === "laws" && <LawPanel laws={laws} selectedLaw={selectedLaw} setSelectedLaw={setSelectedLaw} lawQuery={lawQuery} setLawQuery={setLawQuery} lawMatches={lawMatches} activeLaw={activeLaw} />}{!loading && view === "sources" && <SourceList sources={sources} />}<BackTop /></main>;
+}
+
+function Tabs<T extends string>({ view, setView, labels }: { view: T; setView: (view: T) => void; labels: Record<T, string> }) {
+  const icons = [Database, Activity, FileText, ArrowUpRight];
+  return <nav className="tabs">{(Object.keys(labels) as T[]).map((key, index) => { const Icon = icons[index] || Database; return <button key={key} className={view === key ? "active" : ""} onClick={() => setView(key)}><Icon size={17} />{labels[key]}</button>; })}</nav>;
+}
+
+function AlgoRecordCard({ record }: { record: FilingRecord }) {
+  return <article className="record-card"><div className="record-title"><div><h2>{record.algorithmName}</h2><p>{record.entityName}</p></div><span>{record.province}</span></div><div className="chips"><span>{record.filingType}</span><span>{record.batch}</span><span>{record.algorithmClass || "未标注"}</span>{record.domainTags.map((tag) => <span key={tag}>{tag}</span>)}</div><dl className="record-meta"><div><dt>应用产品</dt><dd>{record.product}</dd></div><div><dt>备案编号</dt><dd>{record.recordNumber}</dd></div><div><dt>主要用途</dt><dd>{record.purpose}</dd></div>{record.remark && <div><dt>备注</dt><dd>{record.remark}</dd></div>}</dl><a className="source-link" href={record.sourceUrl} target="_blank" rel="noreferrer">查看来源<ArrowUpRight size={15} /></a></article>;
+}
+
+function FinancialRecordCard({ record }: { record: FinancialRecord }) {
+  return <article className="record-card"><div className="record-title"><div><h2>{record.institutionName}</h2>{record.englishName && <p>{record.englishName}</p>}</div><span>{record.province}</span></div><div className="chips"><span>{record.regime}</span><span>{record.regionType}</span><span>{record.batch}</span>{record.year && <span>{record.year}</span>}{record.serviceTypes.map((tag) => <span key={tag}>{tag}</span>)}</div><dl className="record-meta"><div><dt>许可 / 报备编号</dt><dd>{record.recordNumber}</dd></div><div><dt>服务内容</dt><dd>{record.serviceContent}</dd></div><div><dt>服务渠道</dt><dd>{record.serviceChannel}</dd></div><div><dt>公告时间</dt><dd>{record.announcementDate}</dd></div>{record.note && <div><dt>备注</dt><dd>{record.note}</dd></div>}</dl><a className="source-link" href={record.sourceUrl} target="_blank" rel="noreferrer">查看来源<ArrowUpRight size={15} /></a></article>;
+}
+
+function ProvincePanel({ data }: { data: Datum[] }) {
+  const max = Math.max(1, ...data.map((item) => item.value));
+  return <article className="chart-card chart-wide"><div className="chart-head"><h2>省市统计</h2><span>按备案 / 许可记录归集</span></div><div className="province-grid">{data.map((item) => <div key={item.label} className="province-cell" style={{ opacity: 0.42 + 0.58 * (item.value / max) }}><strong>{item.label}</strong><span>{item.value}</span></div>)}</div></article>;
+}
+
+function useLawMatches(activeLaw: Law | FinancialLaw | undefined, lawQuery: string) {
+  return useMemo(() => {
     if (!activeLaw) return [];
     const query = lawQuery.trim();
     return activeLaw.chapters.map((chapter) => ({ ...chapter, articles: chapter.articles.filter((article) => !query || includesText(article.text, query)) }));
   }, [activeLaw, lawQuery]);
+}
 
-  function setFilter<K extends keyof Filters>(key: K, value: Filters[K]) {
-    setFilters((current) => ({ ...current, [key]: value }));
-  }
+function LawPanel({ laws, selectedLaw, setSelectedLaw, lawQuery, setLawQuery, lawMatches, activeLaw }: { laws: Array<Law | FinancialLaw>; selectedLaw: number; setSelectedLaw: (value: number) => void; lawQuery: string; setLawQuery: (value: string) => void; lawMatches: Array<{ chapter: string; articles: Array<{ number: string; text: string }> }>; activeLaw?: Law | FinancialLaw }) {
+  return <section className="law-layout"><aside className="law-nav">{laws.map((law, index) => <button className={index === selectedLaw ? "active" : ""} key={law.title} onClick={() => setSelectedLaw(index)}>{law.title}</button>)}</aside><section className="law-panel">{activeLaw && <><div className="law-head"><div><h2>{activeLaw.title}</h2><p>施行日期：{activeLaw.effectiveDate}</p></div>{activeLaw.sourceUrl && <a href={activeLaw.sourceUrl} target="_blank" rel="noreferrer">来源<ArrowUpRight size={15} /></a>}</div><label className="field search-field law-search"><span>条文关键词</span><Search size={17} /><input value={lawQuery} onChange={(event) => setLawQuery(event.target.value)} placeholder="输入关键词" /></label><div className="articles">{lawMatches.map((chapter) => <section key={chapter.chapter}>{chapter.articles.length > 0 && <h3>{chapter.chapter}</h3>}{chapter.articles.map((article) => <article key={article.number}><strong>{article.number}</strong><p>{cleanArticleText(article.number, article.text)}</p></article>)}</section>)}</div></>}</section></section>;
+}
 
-  return (
-    <main className="shell">
-      <header className="topbar">
-        <div><p className="eyebrow">Personal Research Database</p><h1>算法备案查询系统</h1></div>
-      </header>
+function SourceList({ sources }: { sources: Array<FinancialSource | (Source & { type?: string; recordCount?: number; loadedCount?: number })> }) {
+  return <section className="sources-list">{sources.map((source) => <article className="source-card" key={`${source.title}-${source.batch}-${source.localFile}`}><div><h2>{source.title}</h2><p>{source.type || "来源"} · {source.batch} · {source.date}</p>{source.message && <small>{source.message}</small>}</div><span className={source.status === "loaded" ? "ok" : "warn"}>{source.status === "loaded" ? "已载入" : "待补附件"}</span>{typeof source.loadedCount === "number" && <b>{source.loadedCount}/{source.recordCount || 0}</b>}<a href={source.url} target="_blank" rel="noreferrer">官方公告<ArrowUpRight size={15} /></a></article>)}</section>;
+}
 
-      <section className="summary-band">
-        <div className="summary-copy"><div><strong>数据统计</strong></div></div>
-        <div className="stats-grid">
-          <StatCard label="总记录" value={stats?.recordCount ?? "-"} />
-          <StatCard label="算法备案" value={stats?.domesticCount ?? "-"} />
-          <StatCard label="深度合成" value={stats?.deepCount ?? "-"} />
-          <StatCard label="数据源" value={stats?.sourceCount ?? "-"} />
-        </div>
-      </section>
+function BackTop() {
+  return <button className="back-top" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>↑</button>;
+}
 
-      <nav className="tabs" aria-label="主视图">
-        <button className={view === "records" ? "active" : ""} onClick={() => setView("records")}><Database size={17} />备案查询</button>
-        <button className={view === "trends" ? "active" : ""} onClick={() => setView("trends")}><Activity size={17} />趋势分析</button>
-        <button className={view === "laws" ? "active" : ""} onClick={() => setView("laws")}><FileText size={17} />法条检索</button>
-        <button className={view === "sources" ? "active" : ""} onClick={() => setView("sources")}><ArrowUpRight size={17} />来源记录</button>
-      </nav>
-
-      {loading && <div className="empty">正在载入数据</div>}
-      {!loading && view === "trends" && <TrendsView records={records} />}
-
-      {!loading && view === "records" && facets && (
-        <section className="workspace">
-          <aside className="filters">
-            <label className="field search-field"><span>企业 / 算法 / 编号</span><Search size={17} /><input value={filters.query} onChange={(event) => setFilter("query", event.target.value)} placeholder="输入关键词" /></label>
-            <SelectField label="备案类型" value={filters.filingType} options={facets.filingTypes} onChange={(value) => setFilter("filingType", value)} />
-            <SelectField label="批次" value={filters.batch} options={facets.batches} onChange={(value) => setFilter("batch", value)} />
-            <SelectField label="算法类型 / 角色" value={filters.algorithmClass} options={facets.algorithmClasses} onChange={(value) => setFilter("algorithmClass", value)} />
-            <SelectField label="应用领域" value={filters.domainTag} options={facets.domainTags} onChange={(value) => setFilter("domainTag", value)} />
-            <SelectField label="所在省" value={filters.province} options={facets.provinces} onChange={(value) => setFilter("province", value)} />
-            <button className="secondary-button" onClick={() => setFilters(emptyFilters)}><FilterX size={17} />清空筛选</button>
-            <a className="secondary-button" href="./data/records.csv" download><Download size={17} />导出 CSV</a>
-          </aside>
-          <section className="results">
-            <div className="result-head"><div><strong>{filteredRecords.length}</strong><span>条匹配记录</span></div><span>当前显示前 {visibleRecords.length} 条</span></div>
-            <div className="record-list">
-              {visibleRecords.map((record) => (
-                <article className="record-card" key={record.id}>
-                  <div className="record-title"><div><h2>{record.algorithmName}</h2><p>{record.entityName}</p></div><span>{record.province}</span></div>
-                  <div className="chips"><span>{record.filingType}</span><span>{record.batch}</span><span>{record.algorithmClass || "未标注"}</span>{record.domainTags.map((tag) => <span key={tag}>{tag}</span>)}</div>
-                  <dl className="record-meta">
-                    <div><dt>应用产品</dt><dd>{record.product}</dd></div>
-                    <div><dt>备案编号</dt><dd>{record.recordNumber}</dd></div>
-                    <div><dt>主要用途</dt><dd>{record.purpose}</dd></div>
-                    {record.remark && <div><dt>备注</dt><dd>{record.remark}</dd></div>}
-                  </dl>
-                  <a className="source-link" href={record.sourceUrl} target="_blank" rel="noreferrer">查看来源<ArrowUpRight size={15} /></a>
-                </article>
-              ))}
-            </div>
-          </section>
-        </section>
-      )}
-
-      {!loading && view === "laws" && (
-        <section className="law-layout">
-          <aside className="law-nav">{laws.map((law, index) => <button className={index === selectedLaw ? "active" : ""} key={law.title} onClick={() => setSelectedLaw(index)}>{law.title}</button>)}</aside>
-          <section className="law-panel">
-            {activeLaw && (
-              <>
-                <div className="law-head"><div><h2>{activeLaw.title}</h2><p>施行日期：{activeLaw.effectiveDate}</p></div>{activeLaw.sourceUrl && <a href={activeLaw.sourceUrl} target="_blank" rel="noreferrer">官方来源<ArrowUpRight size={15} /></a>}</div>
-                <label className="field search-field law-search"><span>法条关键词</span><Search size={17} /><input value={lawQuery} onChange={(event) => setLawQuery(event.target.value)} placeholder="输入关键词" /></label>
-                <div className="articles">{lawMatches.map((chapter) => <section key={chapter.chapter}>{chapter.articles.length > 0 && <h3>{chapter.chapter}</h3>}{chapter.articles.map((article) => <article key={article.number}><strong>{article.number}</strong><p>{cleanArticleText(article.number, article.text)}</p></article>)}</section>)}</div>
-              </>
-            )}
-          </section>
-        </section>
-      )}
-
-      {!loading && view === "sources" && (
-        <section className="sources-list">
-          {sources.map((source) => <article className="source-card" key={`${source.title}-${source.batch}-${source.localFile}`}><div><h2>{source.title}</h2><p>{source.batch} · {source.date}</p></div><span>{source.status}</span><a href={source.url} target="_blank" rel="noreferrer">官方公告<ArrowUpRight size={15} /></a></article>)}
-        </section>
-      )}
-    </main>
-  );
+function App() {
+  const [module, setModule] = useState<Module>("archive");
+  if (module === "archive") return <ArchiveLanding onOpen={setModule} />;
+  if (module === "financial") return <FinancialModule onBack={() => setModule("archive")} />;
+  return <AlgorithmModule onBack={() => setModule("archive")} />;
 }
 
 export default App;
