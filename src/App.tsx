@@ -44,7 +44,47 @@ function MiniBarPanel({ title, data, unit = "项" }: { title: string; data: Datu
 }
 
 function ArchiveLanding({ onOpen }: { onOpen: (module: Module) => void }) {
-  return <main className="archive-shell"><section className="archive-hero"><p className="eyebrow">Personal Research Database</p><h1>网数档案馆</h1><p>把监管清单、备案公示、许可名单整理成可检索、可导出、可回溯来源的工作台。</p><div className="folder-stage"><div className="folder-stack"><i /><i /><i /><i /><i /><button className="file-folder main-folder" onClick={() => onOpen("algorithm")}><span>算法备案查询系统</span><small>Algorithm Filing</small></button></div></div></section><section className="module-grid"><button className="module-card" onClick={() => onOpen("algorithm")}><div className="folder-mark"><span /></div><h2>算法备案查询系统</h2><p>保留原有备案查询、趋势分析、法条检索、来源记录。</p></button><button className="module-card featured" onClick={() => onOpen("financial")}><div className="folder-mark"><span /></div><h2>金融信息服务报备许可查询系统</h2><p>新增境内机构报备、境外机构许可、境外投资设立企业许可检索。</p></button><button className="module-card disabled"><div className="folder-mark"><span /></div><h2>更多模块敬请期待</h2><p>预留给后续监管清单、处罚案例、标准条款数据库。</p></button></section></main>;
+  const folders: Array<{ module: Module; label: string; disabled?: boolean }> = [
+    { module: "algorithm", label: "算法备案查询系统" },
+    { module: "financial", label: "金融信息服务报备许可查询系统" },
+    { module: "archive", label: "更多模块敬请期待", disabled: true },
+  ];
+  const [active, setActive] = useState(0);
+  const clamp = (value: number) => Math.max(0, Math.min(folders.length - 1, value));
+  return (
+    <main className="archive-shell">
+      <h1 className="archive-title">网数档案馆</h1>
+      <section
+        className="folder-browser"
+        aria-label="网数档案馆文件夹"
+        onWheel={(event) => {
+          event.preventDefault();
+          if (Math.abs(event.deltaY) < 2) return;
+          setActive((current) => clamp(current + (event.deltaY > 0 ? 1 : -1)));
+        }}
+      >
+        <div className="folder-rail">
+          {folders.map((folder, index) => {
+            const offset = index - active;
+            const state = offset === 0 ? "active" : offset < 0 ? "before" : "after";
+            return (
+              <button
+                key={folder.label}
+                type="button"
+                className={`album-folder ${state}`}
+                style={{ "--offset": offset } as React.CSSProperties}
+                onMouseEnter={() => setActive(index)}
+                onClick={() => folder.disabled ? setActive(index) : onOpen(folder.module)}
+              >
+                <span className="folder-tab">{folder.label}</span>
+                <span className="folder-body" />
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    </main>
+  );
 }
 
 function matchesAlgo(record: FilingRecord, filters: AlgoFilters) {
