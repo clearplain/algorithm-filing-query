@@ -58,7 +58,16 @@ h1, h2, h3, p { margin: 0; }
 }
 
 .album-folder {
-  --offset: 0;
+  --y: 0px;
+  --z: 0px;
+  --rot: 0deg;
+  --scale: 1;
+  --opacity: 1;
+  --brightness: 1;
+  --hover-y: -12px;
+  --hover-z: 42px;
+  --hover-rot: 0deg;
+  --hover-scale: 1.025;
   position: absolute;
   left: 50%;
   top: 50%;
@@ -67,14 +76,10 @@ h1, h2, h3, p { margin: 0; }
   border: 0;
   background: transparent;
   transform-style: preserve-3d;
-  transform:
-    translate3d(-50%, calc(-50% + var(--offset) * 86px), calc(var(--offset) * -120px))
-    rotateX(58deg)
-    rotateZ(calc(var(--offset) * -1.4deg))
-    scale(calc(1 - max(var(--offset), -1 * var(--offset)) * .045));
-  opacity: calc(1 - max(var(--offset), -1 * var(--offset)) * .18);
+  transform: translate3d(-50%, calc(-50% + var(--y)), var(--z)) rotateX(58deg) rotateZ(var(--rot)) scale(var(--scale));
+  opacity: var(--opacity);
   transition: transform .55s cubic-bezier(.2, .9, .2, 1), opacity .45s ease, filter .45s ease;
-  filter: saturate(.96) brightness(calc(1 - max(var(--offset), -1 * var(--offset)) * .04));
+  filter: saturate(.96) brightness(var(--brightness));
 }
 
 .album-folder.active {
@@ -142,11 +147,7 @@ h1, h2, h3, p { margin: 0; }
 }
 
 .album-folder:hover {
-  transform:
-    translate3d(-50%, calc(-50% + var(--offset) * 76px - 12px), calc(var(--offset) * -120px + 42px))
-    rotateX(48deg)
-    rotateZ(calc(var(--offset) * -1.2deg))
-    scale(calc(1.025 - max(var(--offset), -1 * var(--offset)) * .04));
+  transform: translate3d(-50%, calc(-50% + var(--hover-y)), var(--hover-z)) rotateX(48deg) rotateZ(var(--hover-rot)) scale(var(--hover-scale));
 }
 
 .eyebrow { margin: 0 0 8px; color: #6b7280; font-size: 13px; letter-spacing: .05em; text-transform: uppercase; }
@@ -288,7 +289,7 @@ h1, h2, h3, p { margin: 0; }
   .folder-rail { height: 430px; }
   .album-folder { width: min(620px, 92vw); height: 205px; }
   .folder-tab { min-height: 58px; left: 28px; min-width: min(420px, calc(100% - 56px)); max-width: calc(100% - 56px); padding: 0 22px; }
-  .folder-body { inset-top: 29px; }
+  .folder-body { inset: 29px 0 0; }
   .topbar, .summary-band, .workspace, .law-layout, .chart-grid { display: grid; grid-template-columns: 1fr; }
   .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .filters, .law-nav { position: static; }
