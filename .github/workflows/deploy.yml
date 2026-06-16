@@ -31,7 +31,7 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
       - name: Build data
-        run: python scripts/build_data.py
+        run: python scripts/build_data.py && python scripts/build_financial_data.py
       - name: Build site
         env:
           VITE_GITHUB_ACTIONS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/refresh-data.yml
