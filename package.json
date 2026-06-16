@@ -7,8 +7,8 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build --base=./",
     "preview": "vite preview --host 127.0.0.1",
-    "data:build": "python scripts/build_data.py",
-    "data:refresh": "python scripts/build_data.py --fetch-remote",
+    "data:build": "python scripts/build_data.py && python scripts/build_financial_data.py",
+    "data:refresh": "python scripts/build_data.py --fetch-remote && python scripts/build_financial_data.py",
     "verify": "npm run data:build && npm run build"
   },
   "dependencies": {
