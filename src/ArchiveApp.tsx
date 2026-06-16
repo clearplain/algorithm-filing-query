@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
-import { Activity, Archive, ArrowLeft, ArrowUpRight, Building2, ChevronUp, Database, Download, FilterX, Folder, Globe2, Search } from "lucide-react";
+import { Activity, ArrowLeft, ArrowUpRight, Building2, ChevronUp, Download, FilterX, Globe2, Search } from "lucide-react";
 import AlgorithmApp from "./App";
 
 type Module = "archive" | "algorithm" | "finance";
@@ -9,6 +8,8 @@ type LiteRow = [string, string, string, string, string, string, string, string, 
 type Rec = { id: string; recordType: string; scope: string; batch: string; date: string; name: string; en: string; content: string; channel: string; number: string; province: string; city: string; tags: string[]; url: string; source: string };
 type Filters = { q: string; type: string; scope: string; batch: string; province: string; tag: string };
 type Source = { title: string; category: string; batch: string; date: string; url: string; count: number; status: string; message?: string };
+type FourthRecord = { batch: string; announcementDate: string; institutionName: string; englishName: string; serviceContent: string; serviceChannel: string; recordNumber: string; province: string; city: string; serviceTypes: string[]; sourceTitle: string; sourceUrl: string };
+type FourthPayload = { source?: { title?: string; date?: string; url?: string; recordCount?: number; status?: string; message?: string }; records?: FourthRecord[] };
 
 const empty: Filters = { q: "", type: "", scope: "", batch: "", province: "", tag: "" };
 const typeMeta: Record<string, { recordType: string; scope: string }> = {
@@ -20,7 +21,7 @@ const sources: Record<string, Source> = {
   D1: { title: "国家互联网信息办公室关于发布第一批境内金融信息服务机构报备编号的公告", category: "境内机构报备", batch: "2022年第一批", date: "2022-01-04", url: "https://www.cac.gov.cn/2022-01/04/c_1642894644935908.htm", count: 20, status: "loaded" },
   D2: { title: "国家互联网信息办公室关于发布第二批境内金融信息服务机构报备编号的公告", category: "境内机构报备", batch: "2022年第二批", date: "2022-10-28", url: "https://www.cac.gov.cn/2022-10/28/c_1668509064248761.htm", count: 13, status: "loaded" },
   D3: { title: "国家互联网信息办公室关于发布第三批境内金融信息服务机构报备编号的公告", category: "境内机构报备", batch: "2023年第三批", date: "2023-11-21", url: "https://www.cac.gov.cn/2023-11/21/c_1702230143102599.htm", count: 5, status: "loaded" },
-  D4: { title: "国家互联网信息办公室关于发布第四批境内金融信息服务机构报备编号的公告", category: "境内机构报备", batch: "2026年第四批", date: "2026-02-14", url: "https://www.cac.gov.cn/2026-02/14/c_1772800146857074.htm", count: 0, status: "source-only", message: "上传文件为公告正文，未包含附件表格；系统保留官方公告入口。" },
+  D4: { title: "境内金融信息服务机构报备清单（第四批）", category: "境内机构报备", batch: "第四批", date: "2025", url: "./data/financial-fourth-batch.json", count: 7, status: "loaded" },
   F: { title: "境外机构在中国境内提供金融信息服务许可名单", category: "境外机构许可", batch: "2026-04-30许可名单", date: "2026-04-30", url: "https://www.cac.gov.cn/2026-04/30/c_1779276540918311.htm", count: 31, status: "loaded" },
   I: { title: "境外机构在中国境内投资设立企业提供金融信息服务许可名单", category: "境外投资设立企业许可", batch: "2026-04-30许可名单", date: "2026-04-30", url: "https://www.cac.gov.cn/2026-04/30/c_1779276540092438.htm", count: 10, status: "loaded" }
 };
@@ -32,8 +33,15 @@ function toRec(row: LiteRow, index: number): Rec {
   const src = sources[row[11]];
   return { id: `${row[0]}-${index}`, recordType: meta.recordType, scope: meta.scope, batch: row[1], date: row[2], name: row[3], en: row[4], content: row[5], channel: row[6], number: row[7], province: row[8], city: row[9], tags: row[10] ? row[10].split("/") : [], url: src.url, source: src.title };
 }
+function fourthToLite(record: FourthRecord): LiteRow {
+  return ["D", record.batch || "第四批", record.announcementDate || "2025", record.institutionName, record.englishName || "", record.serviceContent || "", record.serviceChannel || "", record.recordNumber || "", record.province || "", record.city || "", (record.serviceTypes || []).join("/"), "D4"];
+}
 function uniq(values: string[]) { return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, "zh-Hans-CN")); }
 function count(values: string[]) { return uniq(values).map((label) => ({ label, value: values.filter((v) => v === label).length })).sort((a, b) => b.value - a.value); }
+function mergeRows(base: LiteRow[], extra: LiteRow[]) {
+  const seen = new Set<string>();
+  return [...base, ...extra].filter((row) => { const key = [row[0], row[7], row[3], row[6]].join("|"); if (seen.has(key)) return false; seen.add(key); return true; });
+}
 function match(r: Rec, f: Filters) {
   const q = f.q.trim().toLowerCase();
   if (q && ![r.name, r.en, r.number, r.content, r.channel, r.province, r.city].join(" ").toLowerCase().includes(q)) return false;
@@ -51,12 +59,19 @@ function Select({ label, value, options, on }: { label: string; value: string; o
 function Rank({ title, data }: { title: string; data: { label: string; value: number }[] }) { const max = Math.max(1, ...data.map((d) => d.value)); return <article className="chart-card rank-card"><div className="chart-head"><h2>{title}</h2><span>Top {Math.min(10, data.length)}</span></div><div className="rank-list">{data.slice(0, 10).map((d) => <div className="rank-row" key={d.label}><span>{d.label}</span><div><i style={{ width: `${Math.max(6, d.value / max * 100)}%` }} /></div><strong>{d.value}</strong></div>)}</div></article>; }
 
 function ArchiveHome({ open }: { open: (m: Module) => void }) {
-  const [wave, setWave] = useState(0);
-  return <main className="archive-shell"><section className="archive-hero"><p className="eyebrow">Personal Research Database</p><h1>网数档案馆</h1><p>把分散的备案、许可、报备清单收进同一个资料柜。悬停或滚动中间档案夹，可以模拟手翻档案柜的波动效果。</p></section><section className="folder-stage" onWheel={(e) => setWave((v) => v + Math.sign(e.deltaY))} style={{ "--wave": wave } as CSSProperties}><div className="folder-stack">{Array.from({ length: 9 }).map((_, i) => <span key={i} style={{ "--i": i } as CSSProperties} />)}</div></section><section className="archive-grid"><button className="archive-folder" onClick={() => open("algorithm")}><Folder size={30} /><span>文件夹一</span><strong>算法备案查询系统</strong><p>保留原有算法备案、深度合成备案、趋势分析、法条检索和来源记录。</p></button><button className="archive-folder highlighted" onClick={() => open("finance")}><Archive size={30} /><span>文件夹二</span><strong>金融信息服务报备许可查询系统</strong><p>新增境内机构报备、境外机构许可、境外投资设立企业许可的检索和统计。</p></button><button className="archive-folder disabled" disabled><Database size={30} /><span>文件夹三</span><strong>更多模块敬请期待</strong><p>预留后续监管清单、许可库、备案库等模块入口。</p></button></section></main>;
+  return <main className="archive-shell"><section className="archive-hero"><h1>网数档案馆</h1></section><section className="archive-grid"><button className="archive-folder" onClick={() => open("algorithm")}><strong>算法备案查询系统</strong></button><button className="archive-folder highlighted" onClick={() => open("finance")}><strong>金融信息服务报备许可查询系统</strong></button><button className="archive-folder disabled" disabled><strong>更多模块敬请期待</strong></button></section></main>;
 }
 function Finance({ back }: { back: () => void }) {
   const [rows, setRows] = useState<Rec[]>([]); const [view, setView] = useState<View>("records"); const [f, setF] = useState<Filters>(empty);
-  useEffect(() => { fetch("./finance-data/records-lite.json").then((r) => r.json()).then((r: LiteRow[]) => setRows(r.map(toRec))).catch(() => setRows([])); }, []);
+  useEffect(() => {
+    Promise.all([
+      fetch("./finance-data/records-lite.json").then((r) => r.json()),
+      fetch("./data/financial-fourth-batch.json").then((r) => r.ok ? r.json() : { records: [] }).catch(() => ({ records: [] }))
+    ]).then(([baseRows, fourth]: [LiteRow[], FourthPayload]) => {
+      const fourthRows = (fourth.records || []).map(fourthToLite);
+      setRows(mergeRows(baseRows, fourthRows).map(toRec));
+    }).catch(() => setRows([]));
+  }, []);
   const filtered = useMemo(() => rows.filter((r) => match(r, f)), [rows, f]);
   const set = <K extends keyof Filters>(k: K, v: Filters[K]) => setF((x) => ({ ...x, [k]: v }));
   const tags = uniq(rows.flatMap((r) => r.tags));
