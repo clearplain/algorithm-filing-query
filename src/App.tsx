@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import { Activity, ArrowUpRight, Database, Download, FileText, FilterX, Search } from "lucide-react";
 import type { Facets, FilingRecord, FinancialFacets, FinancialLaw, FinancialRecord, FinancialSource, FinancialStats, Law, Source, Stats } from "./types";
 
@@ -72,7 +73,7 @@ function ArchiveLanding({ onOpen }: { onOpen: (module: Module) => void }) {
                 key={folder.label}
                 type="button"
                 className={`album-folder ${state}`}
-                style={{ "--offset": offset } as React.CSSProperties}
+                style={{ "--offset": offset, "--abs": Math.abs(offset) } as CSSProperties}
                 onMouseEnter={() => setActive(index)}
                 onClick={() => folder.disabled ? setActive(index) : onOpen(folder.module)}
               >
